@@ -1,7 +1,5 @@
 import streamlit as st
 import pandas as pd
-from sklearn.impute import KNNImputer
-
 
 st.title("Analisis Kelayakan Rumah, Sanitasi, dan Perilaku Pasien TBC")
 
@@ -24,10 +22,13 @@ if df_file is not None:
     # Imputasi missing values
     kolom_numerik = df.select_dtypes(include=['number']).columns
     kolom_kategori = df.select_dtypes(include=['object']).columns
-    df[kolom_kategori] = df[kolom_kategori].apply(lambda x: x.fillna(x.mode()[0]))
-    imputer = KNNImputer(n_neighbors=5)
-    df[kolom_numerik] = pd.DataFrame(imputer.fit_transform(df[kolom_numerik]), columns=kolom_numerik)
     
+    # Mengisi missing values untuk kolom kategori dengan mode
+    df[kolom_kategori] = df[kolom_kategori].apply(lambda x: x.fillna(x.mode()[0]))
+
+    # Mengisi missing values untuk kolom numerik dengan mean (bisa diganti median jika diperlukan)
+    df[kolom_numerik] = df[kolom_numerik].apply(lambda x: x.fillna(x.mean()))  # Bisa diganti x.median()
+
     st.write("### Data Setelah Imputasi")
     st.dataframe(df.head())
 
