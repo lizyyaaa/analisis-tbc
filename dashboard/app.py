@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from sklearn.impute import KNNImputer
 
+
 st.title("Analisis Kelayakan Rumah, Sanitasi, dan Perilaku Pasien TBC")
 
 # Upload file CSV
