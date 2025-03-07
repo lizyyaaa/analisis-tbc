@@ -7,9 +7,14 @@ st.title("Analisis Kelayakan Rumah, Sanitasi, dan Perilaku Pasien TBC")
 df_file = st.file_uploader("Upload dataset CSV", type=["csv"])
 
 if df_file is not None:
-    df = pd.read_csv(df_file)
-    st.write("### Data Awal")
-    st.dataframe(df.head())
+    try:
+        # Mencoba membaca dengan delimiter otomatis
+        df = pd.read_csv(df_file, encoding="utf-8", sep=None, engine="python")
+        st.write("### Data Awal")
+        st.dataframe(df.head())
+    except Exception as e:
+        st.error(f"Terjadi kesalahan saat membaca file: {e}")
+
 
     # Identifikasi missing values
     missing_values = df.isnull().sum()
