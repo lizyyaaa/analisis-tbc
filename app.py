@@ -13,8 +13,9 @@ uploaded_file = st.file_uploader("Pilih file CSV/Excel", type=["csv", "xlsx"])
 if uploaded_file is not None:
     try:
         # Baca file; jika CSV gunakan separator ";" sesuai file Anda
-        if uploaded_file.name.endswith('.csv'):
-            df = pd.read_csv(uploaded_file, sep=";")
+       if uploaded_file.name.endswith('.csv'):
+            df = pd.read_csv(uploaded_file, sep=None, engine="python")  # Deteksi otomatis separator
+
         else:
             df = pd.read_excel(uploaded_file)
         st.success("File berhasil diunggah!")
