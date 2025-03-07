@@ -1,103 +1,78 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
+from sklearn.impute import KNNImputer
 
-st.title("Dashboard Analisis Data TBC")
-st.markdown("""
-Aplikasi ini memungkinkan Anda mengunggah file CSV/Excel, melakukan pembersihan data, melakukan penilaian 
-untuk kategori Rumah, Sanitasi, dan Perilaku, serta menampilkan visualisasi hasil analisis.
-""")
+st.title("Analisis Kelayakan Rumah, Sanitasi, dan Perilaku Pasien TBC")
 
-# ----- 1. Unggah File -----
-uploaded_file = st.file_uploader("Pilih file CSV/Excel", type=["csv", "xlsx"])
-if uploaded_file is not None:
-    try:
-        if uploaded_file.name.endswith('.csv'):
-            df = pd.read_csv(uploaded_file, sep=";")
-        else:
-            df = pd.read_excel(uploaded_file)
-        st.success("File berhasil diunggah!")
-        st.write("Data asli (5 baris pertama):", df.head())
-    except Exception as e:
-        st.error(f"Error membaca file: {e}")
+# Upload file CSV
+df_file = st.file_uploader("Upload dataset CSV", type=["csv"])
+
+if df_file is not None:
+    df = pd.read_csv(df_file)
+    st.write("### Data Awal")
+    st.dataframe(df.head())
+
+    # Identifikasi missing values
+    missing_values = df.isnull().sum()
+    missing_percentage = (missing_values / len(df)) * 100
+    missing_data = pd.DataFrame({"Missing Values": missing_values, "Percentage": missing_percentage})
+    missing_data = missing_data[missing_data["Missing Values"] > 0]
+    st.write("### Missing Values")
+    st.dataframe(missing_data.sort_values(by="Percentage", ascending=False))
+
+    # Imputasi missing values
+    kolom_numerik = df.select_dtypes(include=['number']).columns
+    kolom_kategori = df.select_dtypes(include=['object']).columns
+    df[kolom_kategori] = df[kolom_kategori].apply(lambda x: x.fillna(x.mode()[0]))
+    imputer = KNNImputer(n_neighbors=5)
+    df[kolom_numerik] = pd.DataFrame(imputer.fit_transform(df[kolom_numerik]), columns=kolom_numerik)
     
-    # ----- 2. Cleaning Data -----
-    st.markdown("### Proses Cleaning Data")
-    df_clean = df.copy()
-    df_clean = df_clean.dropna()
-    df_clean.columns = df_clean.columns.str.strip()
-    st.write("Data setelah cleaning (5 baris pertama):", df_clean.head())
+    st.write("### Data Setelah Imputasi")
+    st.dataframe(df.head())
+
+    # Definisi kategori
+    kategori_rumah = ['status_rumah', 'langit_langit', 'lantai', 'dinding', 'jendela_kamar_tidur',
+                       'jendela_ruang_keluarga', 'ventilasi', 'lubang_asap_dapur', 'pencahayaan']
+    kategori_sanitasi = ['sarana_air_bersih', 'jamban', 'sarana_pembuangan_air_limbah',
+                         'sarana_pembuangan_sampah', 'sampah']
+    kategori_perilaku = ['perilaku_merokok', 'anggota_keluarga_merokok', 'membuka_jendela_kamar_tidur',
+                         'membuka_jendela_ruang_keluarga', 'membersihkan_rumah', 'membuang_tinja',
+                         'membuang_sampah', 'kebiasaan_ctps']
     
-    # ----- 3. Fungsi Penilaian -----
-    def nilai_rumah(val):
-        sangat_buruk = ['Tidak ada', 'Tanah', 'Kurang Baik', 'Bukan tembok', 'Tidak Ada',
-                        'Kurang terang', 'Semi permanen bata/batu yang tidak diplester',
-                        'Ada, luas ventilasi < 10% dari luas lantai']
-        buruk = ['Papan/anyaman bambu/plester retak berdebu', 'Ada tetapi tidak kedap air dan tidak tertutup']
-        if val in sangat_buruk:
-            return 2
-        elif val in buruk:
-            return 1
-        else:
-            return 0
+    df_rumah = df[kategori_rumah].dropna()
+    df_sanitasi = df[kategori_sanitasi].dropna()
+    df_perilaku = df[kategori_perilaku].dropna()
+
+    # Fungsi hitung skor
+    def hitung_skor(df, kategori, bobot):
+        skor = []
+        for index, row in df.iterrows():
+            total_skor = sum(bobot.get(col, {}).get(row[col], 0) for col in kategori)
+            max_skor = len(kategori) * 5
+            skor.append((total_skor / max_skor) * 100 if max_skor > 0 else 0)
+        df["Skor Kelayakan"] = skor
+        return df
+
+    # Bobot (contoh hanya untuk rumah)
+    bobot_rumah = {
+        "langit_langit": {"Ada": 5, "Tidak ada": 1},
+        "lantai": {"Ubin/keramik/marmer": 5, "Tanah": 1},
+        "dinding": {"Permanen (tembok pasangan batu bata yang diplester)": 5, "Bukan tembok": 1},
+        "jendela_kamar_tidur": {"Ada": 5, "Tidak ada": 1},
+        "jendela_ruang_keluarga": {"Ada": 5, "Tidak ada": 1},
+        "ventilasi": {"Baik": 5, "Tidak Ada": 1},
+        "lubang_asap_dapur": {"Ada": 5, "Tidak Ada": 1},
+        "pencahayaan": {"Terang/Dapat digunakan membaca normal": 5, "Tidak Terang": 1}
+    }
     
-    def nilai_sanitasi(val):
-        if pd.isna(val):
-            return 0
-        sangat_buruk = ['Dibuang ke sungai/kebun/kolam/sembarangan', 'Tidak Ada',
-                        'Tidak ada, sehingga tergenang dan tidak teratur di halaman/belakang rumah']
-        buruk = ['Ada, tetapi tidak kedap air dan tidak tertutup', 'Ada, diresapkan tetapi mencemari sumber air (jarak <10m)']
-        if any(sb in val for sb in sangat_buruk):
-            return 2
-        elif any(b in val for b in buruk):
-            return 1
-        else:
-            return 0
+    df_rumah = hitung_skor(df_rumah, kategori_rumah, bobot_rumah)
+    threshold = 70
+    df_rumah["Label"] = df_rumah["Skor Kelayakan"].apply(lambda x: "Layak" if x >= threshold else "Tidak Layak")
     
-    def nilai_perilaku(val):
-        sangat_buruk = ['Tidak pernah', 'Ya', 'Tidak pernah dibuka', 'Tidak pernah CTPS']
-        buruk = ['Kadang-kadang', 'Kadang-kadang dibuka', 'Kadang-kadang CTPS']
-        if val in sangat_buruk:
-            return 2
-        elif val in buruk:
-            return 1
-        else:
-            return 0
+    # Tampilkan hasil
+    st.write("### Skor Kelayakan Rumah")
+    st.dataframe(df_rumah.head())
     
-    rumah_kolom = ['langit_langit', 'lantai', 'dinding', 'ventilasi', 'lubang_asap_dapur', 'pencahayaan']
-    sanitasi_kolom = ['sarana_pembuangan_air_limbah', 'sarana_pembuangan_sampah', 'membuang_tinja', 'membuang_sampah']
-    perilaku_kolom = ['perilaku_merokok', 'anggota_keluarga_merokok', 'membersihkan_rumah', 'kebiasaan_ctps', 'memiliki_hewan_ternak']
-    
-    df_clean['skor_rumah'] = df_clean[rumah_kolom].apply(lambda col: col.map(nilai_rumah)).sum(axis=1)
-    df_clean['skor_sanitasi'] = df_clean[sanitasi_kolom].apply(lambda col: col.map(nilai_sanitasi)).sum(axis=1)
-    df_clean['skor_perilaku'] = df_clean[perilaku_kolom].apply(lambda col: col.map(nilai_perilaku)).sum(axis=1)
-    
-    df_clean['rumah_tidak_layak'] = df_clean['skor_rumah'] > 2
-    df_clean['sanitasi_tidak_layak'] = df_clean['skor_sanitasi'] > 2
-    df_clean['perilaku_tidak_baik'] = df_clean['skor_perilaku'] > 2
-    
-    st.markdown("### Hasil Pemberian Skor")
-    st.write(df_clean[['skor_rumah', 'skor_sanitasi', 'skor_perilaku', 
-                         'rumah_tidak_layak', 'sanitasi_tidak_layak', 'perilaku_tidak_baik']].head())
-    
-    # ----- 4. Visualisasi -----
-    st.markdown("## Visualisasi Hasil Analisis")
-    kategori_list = ["Rumah Tidak Layak", "Sanitasi Tidak Layak", "Perilaku Tidak Baik"]
-    total_responden = len(df_clean)
-    total_rumah_tidak_layak = df_clean['rumah_tidak_layak'].sum()
-    total_sanitasi_tidak_layak = df_clean['sanitasi_tidak_layak'].sum()
-    total_perilaku_tidak_baik = df_clean['perilaku_tidak_baik'].sum()
-    persentase_list = [(total_rumah_tidak_layak / total_responden) * 100,
-                        (total_sanitasi_tidak_layak / total_responden) * 100,
-                        (total_perilaku_tidak_baik / total_responden) * 100]
-    
-    fig, ax = plt.subplots()
-    ax.bar(kategori_list, persentase_list, color=['#E74C3C', '#FF7F0E', '#1F77B4'])
-    ax.set_ylabel("Persentase (%)")
-    ax.set_title("Persentase Kondisi Tidak Layak/Tidak Baik")
-    for i, v in enumerate(persentase_list):
-        ax.text(i, v + 2, f"{v:.2f}%", ha="center")
-    st.pyplot(fig)
-    
-else:
-    st.info("Silakan unggah file CSV atau Excel untuk memulai analisis.")
+    # Persentase Tidak Layak
+    persentase_tidak_layak_rumah = (df_rumah[df_rumah["Label"] == "Tidak Layak"].shape[0] / df_rumah.shape[0]) * 100
+    st.write(f"Persentase Rumah Tidak Layak: {persentase_tidak_layak_rumah:.2f}%")
